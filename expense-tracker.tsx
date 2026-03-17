@@ -9,7 +9,7 @@ import {
   Search,
   ArrowUpRight,
   ArrowDownRight,
-  Wallet,
+  ArrowRight,
   Calendar,
   MoreHorizontal,
   PieChart,
@@ -24,8 +24,6 @@ import {
   User,
   X,
   Heart,
-  LogOut,
-  BarChart3,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,10 +33,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Switch } from "@/components/ui/switch"
-import { useSession, signOut } from "next-auth/react"
+import { useSession } from "next-auth/react"
 import {
   Pagination,
   PaginationContent,
@@ -48,6 +45,8 @@ import {
   PaginationPrevious,
 } from "@/components/ui/pagination"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import { LoadingScreen } from "@/components/loading-screen"
+import { useToast } from "@/hooks/use-toast"
 
 // Define expense type
 type Expense = {
@@ -91,6 +90,7 @@ const CATEGORY_ICONS: Record<string, React.ComponentType<{ className: string }>>
 
 export default function ExpenseTracker() {
   const { data: session } = useSession()
+  const { toast } = useToast()
 
   // State for Drive file IDs
   const [expensesFileMap, setExpensesFileMap] = useState<Record<string, string>>({})
@@ -117,7 +117,10 @@ export default function ExpenseTracker() {
     if (response.status === 401) {
       const errorData = await response.json().catch(() => ({}))
       if (errorData.requiresAuth) {
-        // Session expired, redirect to login
+        toast({
+          title: "Session expired",
+          description: "Please sign in with Google again to load your data.",
+        })
         router.push("/login")
         return true
       }
@@ -390,18 +393,98 @@ export default function ExpenseTracker() {
     setCurrentPage(1)
   }, [searchTerm, filterCategory, filterPerson, activeTab])
 
-  // Group expenses by category for summary
+  // Group expenses by category for summary (current month + change vs last month)
+  const summaryToday = new Date()
+  const summaryCurrentMonth = summaryToday.getMonth()
+  const summaryCurrentYear = summaryToday.getFullYear()
+  const summaryPrevDate = new Date(summaryCurrentYear, summaryCurrentMonth - 1, 1)
+  const summaryPrevMonth = summaryPrevDate.getMonth()
+  const summaryPrevYear = summaryPrevDate.getFullYear()
+
   const expensesByCategory = categories
     .map((category) => {
-      const total = expenses
-        .filter((expense) => expense.category === category.name)
-        .reduce((sum, expense) => sum + convertToDisplayCurrency(expense.amount, expense.currency), 0)
+      const currentTotal = expenses
+        .filter((expense) => {
+          const d = new Date(expense.date)
+          return (
+            expense.category === category.name &&
+            d.getMonth() === summaryCurrentMonth &&
+            d.getFullYear() === summaryCurrentYear
+          )
+        })
+        .reduce(
+          (sum, expense) => sum + convertToDisplayCurrency(expense.amount, expense.currency),
+          0
+        )
+
+      const previousTotal = expenses
+        .filter((expense) => {
+          const d = new Date(expense.date)
+          return (
+            expense.category === category.name &&
+            d.getMonth() === summaryPrevMonth &&
+            d.getFullYear() === summaryPrevYear
+          )
+        })
+        .reduce(
+          (sum, expense) => sum + convertToDisplayCurrency(expense.amount, expense.currency),
+          0
+        )
+
+      let changePercentage = 0
+      let isIncreaseForCategory = false
+      let hasPreviousData = false
+
+      if (previousTotal > 0) {
+        const diff = ((currentTotal - previousTotal) / previousTotal) * 100
+        changePercentage = Math.abs(diff)
+        isIncreaseForCategory = diff >= 0
+        hasPreviousData = true
+      } else if (currentTotal > 0) {
+        // No previous data but some current spending – treat as 100% increase with no previous baseline
+        changePercentage = 100
+        isIncreaseForCategory = true
+        hasPreviousData = false
+      }
+
       return {
         ...category,
-        total,
+        totalCurrent: currentTotal,
+        totalPrevious: previousTotal,
+        changePercentage,
+        isIncreaseForCategory,
+        hasPreviousData,
       }
     })
-    .sort((a, b) => b.total - a.total)
+    .sort((a, b) => b.totalCurrent - a.totalCurrent)
+
+  const currentMonthTotal = expensesByCategory.reduce(
+    (sum, category) => sum + category.totalCurrent,
+    0
+  )
+
+  // This-month totals (all categories) and naive projection
+  const currentMonthToday = new Date()
+  const currentMonthIndex = currentMonthToday.getMonth()
+  const currentYearIndex = currentMonthToday.getFullYear()
+
+  const thisMonthExpenses = expenses.filter((expense) => {
+    const d = new Date(expense.date)
+    return d.getMonth() === currentMonthIndex && d.getFullYear() === currentYearIndex
+  })
+
+  const thisMonthTotal = thisMonthExpenses.reduce(
+    (sum, expense) => sum + convertToDisplayCurrency(expense.amount, expense.currency),
+    0
+  )
+
+  const thisMonthCount = thisMonthExpenses.length
+  const daysInCurrentMonth = new Date(currentYearIndex, currentMonthIndex + 1, 0).getDate()
+  const currentDayOfMonth = currentMonthToday.getDate()
+  const estimatedMonthTotal =
+    currentDayOfMonth > 0 ? (thisMonthTotal / currentDayOfMonth) * daysInCurrentMonth : 0
+
+  const topCategory = expensesByCategory[0]
 
   // Get icon for category
   const getCategoryIconComponent = (categoryName: string) => {
@@ -515,6 +598,20 @@ export default function ExpenseTracker() {
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
   }
 
+  const groupedPaginatedExpenses = paginatedExpenses.reduce(
+    (groups: { dateLabel: string; items: Expense[] }[], expense) => {
+      const dateLabel = formatDate(expense.date)
+      const existing = groups.find((g) => g.dateLabel === dateLabel)
+      if (existing) {
+        existing.items.push(expense)
+      } else {
+        groups.push({ dateLabel, items: [expense] })
+      }
+      return groups
+    },
+    []
+  )
+
   // Get category icon (now uses getCategoryIconComponent)
   const getCategoryIcon = (categoryName: string) => {
     return CATEGORY_ICONS[categoryName] || CreditCard
@@ -522,12 +619,10 @@ export default function ExpenseTracker() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-neon flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-white">Loading your data from Google Drive...</p>
-        </div>
-      </div>
+      <LoadingScreen
+        message="Loading your data from Google Drive..."
+        gradientClass="bg-gradient-neon"
+      />
     )
   }
 
@@ -539,221 +634,180 @@ export default function ExpenseTracker() {
           <span className="text-sm">Saving to Google Drive...</span>
         </div>
       )}
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-gray-800/90 backdrop-blur-md border-b border-gray-700/50">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Wallet className="h-6 w-6 text-white" />
-            <h1 className="text-xl font-semibold text-white">Expense Tracker</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-800/60 border border-gray-600/50">
-              <span className={`text-xs font-medium transition-colors ${displayCurrency === "USD" ? "text-white" : "text-gray-400"}`}>
-                USD
-              </span>
-              <Switch
-                checked={displayCurrency === "PKR"}
-                onCheckedChange={(checked) => setDisplayCurrency(checked ? "PKR" : "USD")}
-                className="data-[state=checked]:bg-blue-500 data-[state=unchecked]:bg-gray-600"
-              />
-              <span className={`text-xs font-medium transition-colors ${displayCurrency === "PKR" ? "text-white" : "text-gray-400"}`}>
-                PKR
-              </span>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push("/analytics")}
-              className="rounded-full gap-1 text-white hover:bg-gray-700/50"
-            >
-              <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Analytics</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push("/loans")}
-              className="rounded-full gap-1 text-white hover:bg-gray-700/50"
-            >
-              <CreditCard className="h-4 w-4" />
-              <span className="hidden sm:inline">Loans</span>
-            </Button>
-            <Dialog 
-              open={isAddExpenseOpen} 
-              onOpenChange={(open) => {
-                setIsAddExpenseOpen(open)
-                if (!open) {
-                  setEditingExpenseId(null)
-                  setNewExpense({
-                    amount: "",
-                    currency: "PKR",
-                    description: "",
-                    category: "Food",
-                    date: new Date().toISOString().split("T")[0],
-                    person: "",
-                  })
-                }
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button
-                  size="sm"
-                  className="rounded-full gap-1 bg-blue-500 text-white hover:bg-blue-600 border-0 shadow-lg"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span className="hidden sm:inline">Add Expense</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px] bg-gray-800/95 backdrop-blur-xl border border-gray-700/50">
-                <DialogHeader>
-                  <DialogTitle className="text-white">
-                    {editingExpenseId ? "Edit Expense" : "Add New Expense"}
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="amount" className="text-gray-300">Amount</Label>
-                    <div className="relative">
-                      <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="amount"
-                        type="number"
-                        placeholder="0.00"
-                        className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
-                        value={newExpense.amount}
-                        onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="currency" className="text-gray-300">Currency</Label>
-                    <Select
-                      value={newExpense.currency}
-                      onValueChange={(value: "USD" | "PKR") => setNewExpense({ ...newExpense, currency: value })}
-                      defaultValue="PKR"
-                    >
-                      <SelectTrigger id="currency" className="bg-gray-700/60 border-gray-600/50 text-white">
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-800 border-gray-700/50">
-                        <SelectItem value="PKR">PKR (₨)</SelectItem>
-                        <SelectItem value="USD">USD ($)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="description" className="text-gray-300">Description</Label>
-                    <Input
-                      id="description"
-                      placeholder="What did you spend on?"
-                      className="bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
-                      value={newExpense.description}
-                      onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="person" className="text-gray-300">Spent on whom</Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="person"
-                        placeholder="Enter name or leave empty for general"
-                        className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
-                        value={newExpense.person}
-                        onChange={(e) => setNewExpense({ ...newExpense, person: e.target.value })}
-                        list="person-suggestions"
-                      />
-                      <datalist id="person-suggestions">
-                        <option value="">No-one (General)</option>
-                        {uniquePeople.map((person) => (
-                          <option key={person} value={person} />
-                        ))}
-                      </datalist>
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="category" className="text-gray-300">Category</Label>
-                    <Select
-                      value={newExpense.category}
-                      onValueChange={(value) => setNewExpense({ ...newExpense, category: value })}
-                    >
-                      <SelectTrigger id="category" className="bg-gray-700/60 border-gray-600/50 text-white">
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-800 border-gray-700/50">
-                        {categories.map((category) => (
-                          <SelectItem key={category.name} value={category.name}>
-                            <div className="flex items-center">
-                              <div className={`w-3 h-3 rounded-full ${category.color} mr-2`}></div>
-                              {category.name}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="date" className="text-gray-300">Date</Label>
-                    <div className="relative">
-                      <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="date"
-                        type="date"
-                        className="pl-9 bg-gray-700/60 border-gray-600/50 text-white focus:border-blue-500"
-                        value={newExpense.date}
-                        onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button
-                    onClick={handleAddExpense}
-                    className="w-full bg-blue-500 text-white hover:bg-blue-600 border-0"
-                  >
-                    {editingExpenseId ? "Update Expense" : "Add Expense"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                  <Avatar className="h-9 w-9 border-2 border-gray-600 bg-gray-700">
-                    <AvatarImage
-                      src={session?.user?.image || "/placeholder-user.jpg"}
-                      alt={session?.user?.name || "User"}
-                    />
-                    <AvatarFallback className="text-white">
-                      {session?.user?.name?.charAt(0).toUpperCase() || "U"}
-                    </AvatarFallback>
-            </Avatar>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700/50 w-56">
-                <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium text-white">{session?.user?.name || "User"}</p>
-                  <p className="text-xs text-gray-400 truncate">{session?.user?.email}</p>
-                </div>
-                <DropdownMenuItem
-                  className="text-red-400 focus:text-red-300 focus:bg-red-500/10 cursor-pointer"
-                  onClick={() => signOut({ callbackUrl: "/login" })}
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+      <div className="sticky top-0 z-10 flex items-center justify-between px-6 pt-5 pb-3 bg-gradient-neon/90 backdrop-blur-md border-b border-gray-900/70">
+        <div>
+          <h1 className="text-xl font-semibold text-white">Expense Tracker</h1>
+          <p className="text-xs text-gray-400 mt-0.5">Overview of your spending and trends</p>
         </div>
-      </header>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-950/80 border border-gray-800/80">
+            <span
+              className={`text-xs font-medium transition-colors ${
+                displayCurrency === "USD" ? "text-white" : "text-gray-400"
+              }`}
+            >
+              USD
+            </span>
+            <Switch
+              checked={displayCurrency === "PKR"}
+              onCheckedChange={(checked) => setDisplayCurrency(checked ? "PKR" : "USD")}
+              className="data-[state=checked]:bg-blue-500 data-[state=unchecked]:bg-gray-600"
+            />
+            <span
+              className={`text-xs font-medium transition-colors ${
+                displayCurrency === "PKR" ? "text-white" : "text-gray-400"
+              }`}
+            >
+              PKR
+            </span>
+          </div>
+          <Dialog
+            open={isAddExpenseOpen}
+            onOpenChange={(open) => {
+              setIsAddExpenseOpen(open)
+              if (!open) {
+                setEditingExpenseId(null)
+                setNewExpense({
+                  amount: "",
+                  currency: "PKR",
+                  description: "",
+                  category: "Food",
+                  date: new Date().toISOString().split("T")[0],
+                  person: "",
+                })
+              }
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button
+                size="sm"
+                className="rounded-full gap-1 bg-blue-500 text-white hover:bg-blue-600 border-0 shadow-lg"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">Add Expense</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px] bg-gray-800/95 backdrop-blur-xl border border-gray-700/50">
+              <DialogHeader>
+                <DialogTitle className="text-white">
+                  {editingExpenseId ? "Edit Expense" : "Add New Expense"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="amount" className="text-gray-300">Amount</Label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="amount"
+                      type="number"
+                      placeholder="0.00"
+                      className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                      value={newExpense.amount}
+                      onChange={(e) => setNewExpense({ ...newExpense, amount: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="currency" className="text-gray-300">Currency</Label>
+                  <Select
+                    value={newExpense.currency}
+                    onValueChange={(value: "USD" | "PKR") => setNewExpense({ ...newExpense, currency: value })}
+                    defaultValue="PKR"
+                  >
+                    <SelectTrigger id="currency" className="bg-gray-700/60 border-gray-600/50 text-white">
+                      <SelectValue placeholder="Select currency" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-gray-800 border-gray-700/50">
+                      <SelectItem value="PKR">PKR (₨)</SelectItem>
+                      <SelectItem value="USD">USD ($)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="description" className="text-gray-300">Description</Label>
+                  <Input
+                    id="description"
+                    placeholder="What did you spend on?"
+                    className="bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                    value={newExpense.description}
+                    onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="person" className="text-gray-300">Spent on whom</Label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="person"
+                      placeholder="Enter name or leave empty for general"
+                      className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                      value={newExpense.person}
+                      onChange={(e) => setNewExpense({ ...newExpense, person: e.target.value })}
+                      list="person-suggestions"
+                    />
+                    <datalist id="person-suggestions">
+                      <option value="">No-one (General)</option>
+                      {uniquePeople.map((person) => (
+                        <option key={person} value={person} />
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="category" className="text-gray-300">Category</Label>
+                  <Select
+                    value={newExpense.category}
+                    onValueChange={(value) => setNewExpense({ ...newExpense, category: value })}
+                  >
+                    <SelectTrigger id="category" className="bg-gray-700/60 border-gray-600/50 text-white">
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-gray-800 border-gray-700/50">
+                      {categories.map((category) => (
+                        <SelectItem key={category.name} value={category.name}>
+                          <div className="flex items-center">
+                            <div className={`w-3 h-3 rounded-full ${category.color} mr-2`}></div>
+                            {category.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="date" className="text-gray-300">Date</Label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                    <Input
+                      id="date"
+                      type="date"
+                      className="pl-9 bg-gray-700/60 border-gray-600/50 text-white focus:border-blue-500"
+                      value={newExpense.date}
+                      onChange={(e) => setNewExpense({ ...newExpense, date: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  onClick={handleAddExpense}
+                  className="w-full bg-blue-500 text-white hover:bg-blue-600 border-0"
+                >
+                  {editingExpenseId ? "Update Expense" : "Add Expense"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
 
       {/* Main Content */}
       <main className="flex-1 container mx-auto px-4 py-6">
         <div className="grid gap-6">
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="overflow-hidden bg-gray-800/90 border border-gray-700/50 backdrop-blur-xl">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <Card className="overflow-hidden bg-gray-800/60 border border-gray-700/50 backdrop-blur-xl">
               <CardHeader className="pb-2">
                 <CardDescription className="text-gray-400">Total Expenses</CardDescription>
                 <CardTitle className="text-3xl font-bold text-white">
@@ -779,55 +833,99 @@ export default function ExpenseTracker() {
                       </>
                     )}
                     <span className="ml-1">from last month</span>
-                </div>
+                  </div>
                 ) : (
                   <div className="text-xs text-gray-400 flex items-center">
-                    <span>No data from last month</span>
+                    <ArrowRight className="h-3 w-3 mr-1 text-gray-500" />
+                    <span className="text-gray-500 font-medium">0%</span>
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card className="bg-gray-800/90 border border-gray-700/50 backdrop-blur-xl">
+            <Card className="bg-gray-800/60 border border-gray-700/50 backdrop-blur-xl">
               <CardHeader className="pb-2">
                 <CardDescription className="text-gray-400">Top Category</CardDescription>
                 <CardTitle className="flex items-center gap-2 text-white">
-                  <div className={`w-3 h-3 rounded-full ${expensesByCategory[0]?.color || "bg-blue-500"}`}></div>
-                  {expensesByCategory[0]?.name || "None"}
+                  <div className={`w-3 h-3 rounded-full ${topCategory?.color || "bg-blue-500"}`}></div>
+                  {topCategory?.name || "None"}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pb-2">
-                <div className="text-2xl font-bold text-white">
-                  {expensesByCategory[0]?.total ? formatCurrency(expensesByCategory[0].total, displayCurrency) : formatCurrency(0, displayCurrency)}
-                </div>
-                <div className="text-xs text-gray-400 mt-1">
-                  {Math.round((expensesByCategory[0]?.total / totalExpenses) * 100) || 0}% of total expenses
-                </div>
+                {topCategory && topCategory.totalCurrent > 0 ? (
+                  <>
+                    <div className="text-2xl font-bold text-white">
+                      {formatCurrency(topCategory.totalCurrent, displayCurrency)}
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-1 gap-1 text-xs text-gray-400">
+                      <span>
+                        {currentMonthTotal > 0
+                          ? `${Math.round((topCategory.totalCurrent / currentMonthTotal) * 100)}% of this month`
+                          : "No spending this month"}
+                      </span>
+                      {topCategory.hasPreviousData ? (
+                        <span className="flex items-center">
+                          {topCategory.isIncreaseForCategory ? (
+                            <>
+                              <ArrowUpRight className="h-3 w-3 mr-1 text-green-500" />
+                              <span className="text-green-500 font-medium">
+                                {topCategory.changePercentage.toFixed(1)}%
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <ArrowDownRight className="h-3 w-3 mr-1 text-red-500" />
+                              <span className="text-red-500 font-medium">
+                                {topCategory.changePercentage.toFixed(1)}%
+                              </span>
+                            </>
+                          )}
+                          <span className="ml-1">vs last month</span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">
+                          <span className="font-medium">0%</span>
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-xs text-gray-400">No spending this month</div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="bg-gray-800/90 border border-gray-700/50 backdrop-blur-xl">
+            <Card className="bg-gray-800/60 border border-gray-700/50 backdrop-blur-xl">
               <CardHeader className="pb-2">
                 <CardDescription className="text-gray-400">This Month</CardDescription>
                 <CardTitle className="text-3xl font-bold text-white">
-                  {formatCurrency(
-                    expenses
-                    .filter((e) => new Date(e.date).getMonth() === new Date().getMonth())
-                      .reduce((sum, e) => sum + convertToDisplayCurrency(e.amount, e.currency), 0),
-                    displayCurrency
-                  )}
+                  {formatCurrency(thisMonthTotal, displayCurrency)}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pb-2">
                 <div className="text-xs text-gray-400">
-                  {expenses.filter((e) => new Date(e.date).getMonth() === new Date().getMonth()).length} transactions
+                  {thisMonthCount} transactions
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gray-800/60 border border-gray-700/50 backdrop-blur-xl">
+              <CardHeader className="pb-2">
+                <CardDescription className="text-gray-400">Estimated This Month</CardDescription>
+                <CardTitle className="text-3xl font-bold text-white">
+                  {formatCurrency(estimatedMonthTotal, displayCurrency)}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pb-2">
+                <div className="text-xs text-gray-400">
+                  Based on average daily spending so far this month.
                 </div>
               </CardContent>
             </Card>
           </div>
 
           {/* Category Distribution and Management */}
-          <Card className="bg-gray-800/90 border border-gray-700/50 backdrop-blur-xl shadow-xl">
+          <Card className="bg-gray-800/60 border border-gray-700/50 backdrop-blur-xl shadow-xl">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg text-white">Expense Distribution & Categories</CardTitle>
@@ -872,7 +970,7 @@ export default function ExpenseTracker() {
             <CardContent>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 {expensesByCategory
-                  .filter((category) => category.total > 0)
+                  .filter((category) => category.totalCurrent > 0)
                   .map((category) => (
                     <div
                       key={category.name}
@@ -885,12 +983,40 @@ export default function ExpenseTracker() {
                       </div>
                       <div>
                         <div className="font-medium text-white">{category.name}</div>
-                        <div className="text-sm text-gray-400">{formatCurrency(category.total, displayCurrency)}</div>
-                      </div>
-                      <div className="ml-auto">
-                        <div className="text-sm font-medium text-gray-300">
-                          {Math.round((category.total / totalExpenses) * 100)}%
+                        <div className="text-sm text-gray-400">
+                          {formatCurrency(category.totalCurrent, displayCurrency)}
                         </div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {currentMonthTotal > 0
+                            ? `${Math.round(
+                                (category.totalCurrent / currentMonthTotal) * 100
+                              )}% of this month`
+                            : "No spending this month"}
+                        </div>
+                      </div>
+                      <div className="ml-auto text-right text-xs text-gray-400">
+                        {category.hasPreviousData ? (
+                          <div className="flex items-center justify-end gap-1">
+                            {category.isIncreaseForCategory ? (
+                              <ArrowUpRight className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <ArrowDownRight className="h-3 w-3 text-red-500" />
+                            )}
+                            <span
+                              className={
+                                category.isIncreaseForCategory
+                                  ? "text-green-500 font-medium"
+                                  : "text-red-500 font-medium"
+                              }
+                            >
+                              {category.changePercentage.toFixed(1)}%
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-500">
+                            <span className="font-medium">0%</span> vs last month
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -920,10 +1046,40 @@ export default function ExpenseTracker() {
           </Card>
 
           {/* Expense List */}
-          <Card className="bg-gray-800/90 border border-gray-700/50 backdrop-blur-xl shadow-xl">
+          <Card className="bg-gray-800/60 border border-gray-700/50 backdrop-blur-xl shadow-xl">
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg text-white">Recent Expenses</CardTitle>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="space-y-2">
+                  <CardTitle className="text-lg text-white">Recent Expenses</CardTitle>
+                  <Tabs value={activeTab} onValueChange={setActiveTab}>
+                    <TabsList className="inline-flex w-full md:w-auto bg-gray-800/70 border border-gray-700/70 rounded-full p-0.5">
+                      <TabsTrigger
+                        value="all"
+                        className="rounded-full px-4 py-1 text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                      >
+                        All
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="today"
+                        className="rounded-full px-4 py-1 text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                      >
+                        Today
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="week"
+                        className="rounded-full px-4 py-1 text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                      >
+                        This Week
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="month"
+                        className="rounded-full px-4 py-1 text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                      >
+                        This Month
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </div>
                 <div className="flex items-center gap-2">
                   <div className="relative">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
@@ -967,89 +1123,91 @@ export default function ExpenseTracker() {
                   </Select>
                 </div>
               </div>
-              <Tabs value={activeTab} className="mt-2" onValueChange={setActiveTab}>
-                <TabsList className="grid grid-cols-4 w-full sm:w-[400px] bg-gray-700/40 border border-gray-600/50">
-                  <TabsTrigger value="all" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                    All
-                  </TabsTrigger>
-                  <TabsTrigger value="today" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                    Today
-                  </TabsTrigger>
-                  <TabsTrigger value="week" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                    This Week
-                  </TabsTrigger>
-                  <TabsTrigger value="month" className="data-[state=active]:bg-blue-500 data-[state=active]:text-white">
-                    This Month
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="divide-y divide-gray-700/50">
+              <div>
                 {paginatedExpenses.length > 0 ? (
-                  paginatedExpenses.map((expense) => (
-                    <div
-                      key={expense.id}
-                      className="p-4 flex items-center justify-between hover:bg-gray-700/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
+                  groupedPaginatedExpenses.map((group) => (
+                    <div key={group.dateLabel} className="border-b border-gray-800/60 last:border-b-0">
+                      <div className="px-5 pt-4 pb-2 text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
+                        {group.dateLabel}
+                      </div>
+                      {group.items.map((expense) => (
                         <div
-                          className={`w-10 h-10 rounded-full ${getCategoryColor(expense.category)} flex items-center justify-center text-white shadow-lg`}
+                          key={expense.id}
+                          className="px-5 py-3 flex items-center justify-between hover:bg-gray-800/40 transition-colors"
                         >
-                          {getCategoryIconComponent(expense.category)}
-                        </div>
-                        <div>
-                          <div className="font-medium text-white">{expense.description}</div>
-                          <div className="text-sm text-gray-400 flex items-center gap-2">
-                            <Badge
-                              variant="secondary"
-                              className="text-xs rounded-full bg-gray-700/50 text-gray-300 hover:bg-gray-700/70 border border-gray-600/50"
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-8 h-8 rounded-lg ${getCategoryColor(
+                                expense.category
+                              )} flex items-center justify-center text-white shadow-md`}
                             >
-                              {expense.category}
-                            </Badge>
-                            <span>•</span>
-                            <div className="flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              {expense.person || "No-one"}
+                              {getCategoryIconComponent(expense.category)}
                             </div>
-                            <span>•</span>
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {formatDate(expense.date)}
+                            <div>
+                              <div className="text-sm font-medium text-white">
+                                {expense.description || expense.category}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="inline-block h-2 w-2 rounded-full bg-gray-400" />
+                                  {expense.category}
+                                </span>
+                                <span className="h-1 w-1 rounded-full bg-gray-500" />
+                                <span className="inline-flex items-center gap-1">
+                                  <User className="h-3 w-3" />
+                                  {expense.person || "No-one"}
+                                </span>
+                                <span className="h-1 w-1 rounded-full bg-gray-500" />
+                                <span className="inline-flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(expense.date).toLocaleTimeString(undefined, {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center gap-4">
+                            <div className="text-sm sm:text-base font-semibold text-white">
+                              {formatCurrency(
+                                convertToDisplayCurrency(expense.amount, expense.currency),
+                                displayCurrency
+                              )}
+                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="rounded-full h-8 w-8 text-gray-400 hover:bg-gray-700/60"
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                align="end"
+                                className="bg-gray-900 border-gray-700/70 shadow-xl"
+                              >
+                                <DropdownMenuItem
+                                  className="text-gray-200 hover:text-white"
+                                  onClick={() => handleEditExpense(expense)}
+                                >
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-red-400 focus:text-red-300"
+                                  onClick={() => handleDeleteExpense(expense.id)}
+                                >
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-lg font-medium text-white">
-                          {formatCurrency(convertToDisplayCurrency(expense.amount, expense.currency), displayCurrency)}
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="rounded-full h-8 w-8 text-gray-400 hover:bg-gray-700/50"
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700/50">
-                            <DropdownMenuItem 
-                              className="text-gray-200 hover:text-white"
-                              onClick={() => handleEditExpense(expense)}
-                            >
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-red-400 focus:text-red-300"
-                              onClick={() => handleDeleteExpense(expense.id)}
-                            >
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                      ))}
                     </div>
                   ))
                 ) : (

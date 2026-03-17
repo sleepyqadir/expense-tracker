@@ -91,9 +91,12 @@
   -webkit-backdrop-filter: blur(8px);
 }
 
-/* Blue gradient background */
+/* Dashboard background inspired by reference UI */
 .bg-gradient-neon {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%);
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 55%),
+    radial-gradient(circle at bottom right, rgba(129, 140, 248, 0.18), transparent 55%),
+    #020617;
 }
 
 /* Blue glow effects */
@@ -118,4 +121,25 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* PKR note rain animation */
+@keyframes note-rain {
+  0% {
+    transform: translate3d(0, -140vh, 0) rotate(calc(var(--note-rotation, 0deg) * -1)) scale(0.7);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.95;
+  }
+  100% {
+    transform: translate3d(0, 130vh, 0) rotate(var(--note-rotation, 0deg)) scale(1);
+    opacity: 0;
+  }
+}
+
+.animate-note-rain {
+  animation-name: note-rain;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
 }

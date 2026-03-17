@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { ArrowLeft, Plus, X, DollarSign, User, Trash2, CheckCircle2 } from "lucide-react"
+import { Plus, X, DollarSign, User, Trash2, CheckCircle2, MinusCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { LoadingScreen } from "@/components/loading-screen"
+import { useToast } from "@/hooks/use-toast"
 
 // Exchange rate: 1 USD = 280 PKR
 const USD_TO_PKR = 280
@@ -31,12 +33,15 @@ type Loan = {
 export default function LoansPage() {
   const { data: session } = useSession()
   const router = useRouter()
+  const { toast } = useToast()
   const [loans, setLoans] = useState<Loan[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [displayCurrency, setDisplayCurrency] = useState<"USD" | "PKR">("PKR")
   const [loansFileId, setLoansFileId] = useState<string | null>(null)
   const [isAddLoanOpen, setIsAddLoanOpen] = useState(false)
+  const [partialClearLoanId, setPartialClearLoanId] = useState<string | null>(null)
+  const [partialClearAmount, setPartialClearAmount] = useState("")
   const hasLoadedRef = useRef(false)
 
   const [newLoan, setNewLoan] = useState({
@@ -53,6 +58,10 @@ export default function LoansPage() {
     if (response.status === 401) {
       const errorData = await response.json().catch(() => ({}))
       if (errorData.requiresAuth) {
+        toast({
+          title: "Session expired",
+          description: "Please sign in with Google again to manage your loans.",
+        })
         router.push("/login")
         return true
       }
@@ -168,7 +177,7 @@ export default function LoansPage() {
     setIsAddLoanOpen(false)
   }
 
-  // Clear a loan
+  // Clear a loan (full)
   const handleClearLoan = (loanId: string) => {
     const updatedLoans = loans.map((loan) =>
       loan.id === loanId
@@ -177,6 +186,34 @@ export default function LoansPage() {
     )
     setLoans(updatedLoans)
     saveLoans(updatedLoans)
+  }
+
+  // Partially clear a loan
+  const handlePartialClear = (loanId: string) => {
+    const amount = parseFloat(partialClearAmount)
+    if (!amount || amount <= 0) return
+
+    const loan = loans.find((l) => l.id === loanId)
+    if (!loan) return
+
+    const deduct = Math.min(amount, loan.amount)
+    const newAmount = loan.amount - deduct
+
+    const updatedLoans = loans.map((l) =>
+      l.id === loanId
+        ? {
+            ...l,
+            amount: newAmount,
+            ...(newAmount <= 0
+              ? { cleared: true, clearedDate: new Date().toISOString().split("T")[0] }
+              : {}),
+          }
+        : l
+    )
+    setLoans(updatedLoans)
+    saveLoans(updatedLoans)
+    setPartialClearLoanId(null)
+    setPartialClearAmount("")
   }
 
   // Delete a loan
@@ -205,161 +242,242 @@ export default function LoansPage() {
   const netAmount = totalGiven - totalTaken
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-blue-950 p-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-center h-screen">
-            <div className="text-white text-xl">Loading loans...</div>
-          </div>
-        </div>
-      </div>
-    )
+    return <LoadingScreen message="Loading loans..." />
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-blue-950 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/")}
-              className="text-white hover:bg-blue-800/50"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
+    <div className="min-h-screen bg-gradient-neon flex flex-col">
+      <div className="flex-1 container mx-auto px-4 py-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-6 flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-white">Loan Tracker</h1>
+              <h1 className="text-2xl font-bold text-white">Loans</h1>
               <p className="text-gray-400 mt-1">Track money given and taken</p>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-800/60 border border-gray-600/50">
-              <span className={`text-xs font-medium transition-colors ${displayCurrency === "USD" ? "text-white" : "text-gray-400"}`}>
-                USD
-              </span>
-              <Switch
-                checked={displayCurrency === "PKR"}
-                onCheckedChange={(checked) => setDisplayCurrency(checked ? "PKR" : "USD")}
-                className="data-[state=checked]:bg-blue-500 data-[state=unchecked]:bg-gray-600"
-              />
-              <span className={`text-xs font-medium transition-colors ${displayCurrency === "PKR" ? "text-white" : "text-gray-400"}`}>
-                PKR
-              </span>
-            </div>
-            <Dialog open={isAddLoanOpen} onOpenChange={setIsAddLoanOpen}>
-              <DialogTrigger asChild>
-                <Button
-                  size="sm"
-                  className="rounded-full gap-1 bg-blue-500 text-white hover:bg-blue-600 border-0 shadow-lg"
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-950/80 border border-gray-800/80">
+                <span
+                  className={`text-xs font-medium transition-colors ${
+                    displayCurrency === "USD" ? "text-white" : "text-gray-400"
+                  }`}
                 >
-                  <Plus className="h-4 w-4" />
-                  <span className="hidden sm:inline">Add Loan</span>
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px] bg-gray-800/95 backdrop-blur-xl border border-gray-700/50">
-                <DialogHeader>
-                  <DialogTitle className="text-white">Add New Loan</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="type" className="text-gray-300">Loan Type</Label>
-                    <Select
-                      value={newLoan.type}
-                      onValueChange={(value: "given" | "taken") => setNewLoan({ ...newLoan, type: value })}
-                    >
-                      <SelectTrigger id="type" className="bg-gray-700/60 border-gray-600/50 text-white">
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-800 border-gray-700/50">
-                        <SelectItem value="given">Given (They owe me)</SelectItem>
-                        <SelectItem value="taken">Taken (I owe them)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="person" className="text-gray-300">Person</Label>
-                    <div className="relative">
-                      <User className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="person"
-                        placeholder="Enter person's name"
-                        className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
-                        value={newLoan.person}
-                        onChange={(e) => setNewLoan({ ...newLoan, person: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="amount" className="text-gray-300">Amount</Label>
-                    <div className="relative">
-                      <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                      <Input
-                        id="amount"
-                        type="number"
-                        placeholder="0.00"
-                        className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
-                        value={newLoan.amount}
-                        onChange={(e) => setNewLoan({ ...newLoan, amount: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="currency" className="text-gray-300">Currency</Label>
-                    <Select
-                      value={newLoan.currency}
-                      onValueChange={(value: "USD" | "PKR") => setNewLoan({ ...newLoan, currency: value })}
-                    >
-                      <SelectTrigger id="currency" className="bg-gray-700/60 border-gray-600/50 text-white">
-                        <SelectValue placeholder="Select currency" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gray-800 border-gray-700/50">
-                        <SelectItem value="PKR">PKR (₨)</SelectItem>
-                        <SelectItem value="USD">USD ($)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="description" className="text-gray-300">Description (Optional)</Label>
-                    <Input
-                      id="description"
-                      placeholder="What is this loan for?"
-                      className="bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
-                      value={newLoan.description}
-                      onChange={(e) => setNewLoan({ ...newLoan, description: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="date" className="text-gray-300">Date</Label>
-                    <Input
-                      id="date"
-                      type="date"
-                      className="bg-gray-700/60 border-gray-600/50 text-white focus:border-blue-500"
-                      value={newLoan.date}
-                      onChange={(e) => setNewLoan({ ...newLoan, date: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
+                  USD
+                </span>
+                <Switch
+                  checked={displayCurrency === "PKR"}
+                  onCheckedChange={(checked) => setDisplayCurrency(checked ? "PKR" : "USD")}
+                  className="data-[state=checked]:bg-blue-500 data-[state=unchecked]:bg-gray-600"
+                />
+                <span
+                  className={`text-xs font-medium transition-colors ${
+                    displayCurrency === "PKR" ? "text-white" : "text-gray-400"
+                  }`}
+                >
+                  PKR
+                </span>
+              </div>
+              <Dialog open={isAddLoanOpen} onOpenChange={setIsAddLoanOpen}>
+                <DialogTrigger asChild>
                   <Button
-                    onClick={handleAddLoan}
-                    className="w-full bg-blue-500 text-white hover:bg-blue-600 border-0"
+                    size="sm"
+                    className="rounded-full gap-1 bg-blue-500 text-white hover:bg-blue-600 border-0 shadow-lg"
                   >
-                    Add Loan
+                    <Plus className="h-4 w-4" />
+                    <span className="hidden sm:inline">Add Loan</span>
                   </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            {isSaving && (
-              <span className="text-gray-400 text-sm">Saving...</span>
-            )}
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px] bg-gray-800/95 backdrop-blur-xl border border-gray-700/50">
+                  <DialogHeader>
+                    <DialogTitle className="text-white">Add New Loan</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="type" className="text-gray-300">
+                        Loan Type
+                      </Label>
+                      <Select
+                        value={newLoan.type}
+                        onValueChange={(value: "given" | "taken") =>
+                          setNewLoan({ ...newLoan, type: value })
+                        }
+                      >
+                        <SelectTrigger
+                          id="type"
+                          className="bg-gray-700/60 border-gray-600/50 text-white"
+                        >
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gray-800 border-gray-700/50">
+                          <SelectItem value="given">Given (They owe me)</SelectItem>
+                          <SelectItem value="taken">Taken (I owe them)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="person" className="text-gray-300">
+                        Person
+                      </Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                        <Input
+                          id="person"
+                          placeholder="Enter person's name"
+                          className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                          value={newLoan.person}
+                          onChange={(e) => setNewLoan({ ...newLoan, person: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="amount" className="text-gray-300">
+                        Amount
+                      </Label>
+                      <div className="relative">
+                        <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                        <Input
+                          id="amount"
+                          type="number"
+                          placeholder="0.00"
+                          className="pl-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                          value={newLoan.amount}
+                          onChange={(e) => setNewLoan({ ...newLoan, amount: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="currency" className="text-gray-300">
+                        Currency
+                      </Label>
+                      <Select
+                        value={newLoan.currency}
+                        onValueChange={(value: "USD" | "PKR") =>
+                          setNewLoan({ ...newLoan, currency: value })
+                        }
+                      >
+                        <SelectTrigger
+                          id="currency"
+                          className="bg-gray-700/60 border-gray-600/50 text-white"
+                        >
+                          <SelectValue placeholder="Select currency" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gray-800 border-gray-700/50">
+                          <SelectItem value="PKR">PKR (₨)</SelectItem>
+                          <SelectItem value="USD">USD ($)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="description" className="text-gray-300">
+                        Description (Optional)
+                      </Label>
+                      <Input
+                        id="description"
+                        placeholder="What is this loan for?"
+                        className="bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                        value={newLoan.description}
+                        onChange={(e) =>
+                          setNewLoan({ ...newLoan, description: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="date" className="text-gray-300">
+                        Date
+                      </Label>
+                      <Input
+                        id="date"
+                        type="date"
+                        className="bg-gray-700/60 border-gray-600/50 text-white focus:border-blue-500"
+                        value={newLoan.date}
+                        onChange={(e) => setNewLoan({ ...newLoan, date: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      onClick={handleAddLoan}
+                      className="w-full bg-blue-500 text-white hover:bg-blue-600 border-0"
+                    >
+                      Add Loan
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              {isSaving && (
+                <span className="text-gray-400 text-sm">Saving...</span>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          {/* Partial clear dialog */}
+          <Dialog
+            open={!!partialClearLoanId}
+            onOpenChange={(open) => !open && setPartialClearLoanId(null)}
+          >
+            <DialogContent className="sm:max-w-[380px] bg-gray-800/95 border-gray-700/50">
+              <DialogHeader>
+                <DialogTitle className="text-white">Partial clear</DialogTitle>
+                <CardDescription className="text-gray-400">
+                  Reduce the loan amount. If the amount equals or exceeds the balance, the
+                  loan will be marked cleared.
+                </CardDescription>
+              </DialogHeader>
+              {partialClearLoanId &&
+                (() => {
+                  const loan = loans.find((l) => l.id === partialClearLoanId)
+                  if (!loan) return null
+                  return (
+                    <div className="grid gap-4 py-4">
+                      <div className="text-sm text-gray-400">
+                        <span className="text-white font-medium">{loan.person}</span>
+                        {" • "}
+                        Current:{" "}
+                        {formatCurrency(
+                          convertToDisplayCurrency(loan.amount, loan.currency)
+                        )}{" "}
+                        ({loan.currency})
+                      </div>
+                      <div>
+                        <Label className="text-gray-300">
+                          Amount to deduct ({loan.currency})
+                        </Label>
+                        <Input
+                          type="number"
+                          step="any"
+                          min="0"
+                          placeholder="0"
+                          className="bg-gray-700/60 border-gray-600 text-white mt-1"
+                          value={partialClearAmount}
+                          onChange={(e) => setPartialClearAmount(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )
+                })()}
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  className="border-gray-600 text-gray-400"
+                  onClick={() => {
+                    setPartialClearLoanId(null)
+                    setPartialClearAmount("")
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-amber-500 hover:bg-amber-600"
+                  onClick={() => partialClearLoanId && handlePartialClear(partialClearLoanId)}
+                  disabled={!partialClearAmount || parseFloat(partialClearAmount) <= 0}
+                >
+                  Deduct
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 mt-6">
           <Card className="bg-gray-800/50 border-gray-700">
             <CardHeader className="pb-2">
               <CardDescription className="text-gray-400">Total Given</CardDescription>
@@ -451,9 +569,21 @@ export default function LoansPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        onClick={() => {
+                          setPartialClearLoanId(loan.id)
+                          setPartialClearAmount("")
+                        }}
+                        className="text-amber-500 hover:bg-amber-500/10"
+                        title="Partial clear"
+                      >
+                        <MinusCircle className="h-5 w-5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         onClick={() => handleClearLoan(loan.id)}
                         className="text-green-500 hover:bg-green-500/10"
-                        title="Clear loan"
+                        title="Clear loan (full)"
                       >
                         <CheckCircle2 className="h-5 w-5" />
                       </Button>
@@ -534,6 +664,7 @@ export default function LoansPage() {
             </CardContent>
           </Card>
         )}
+        </div>
       </div>
     </div>
   )

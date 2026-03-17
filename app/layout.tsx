@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { AuthSessionProvider } from '@/components/session-provider'
+import { AppSidebar } from '@/components/app-sidebar'
 import './globals.css'
 
 const _geist = Geist({ subsets: ["latin"] });
@@ -39,7 +40,12 @@ export default function RootLayout({
     <html lang="en">
       <body className={`font-sans antialiased`}>
         <AuthSessionProvider>
-          {children}
+          <div className="min-h-screen bg-gradient-neon flex">
+            <AppSidebar />
+            <main className="flex-1 flex flex-col">
+              {children}
+            </main>
+          </div>
         </AuthSessionProvider>
         <Analytics />
       </body>

@@ -3,16 +3,17 @@
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { ArrowLeft, BarChart3 } from "lucide-react"
+import { BarChart3 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
+import { LoadingScreen } from "@/components/loading-screen"
+import { useToast } from "@/hooks/use-toast"
 import {
   ChartContainer,
   ChartTooltip,
 } from "@/components/ui/chart"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from "recharts"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Define expense type
 type Expense = {
@@ -52,10 +53,13 @@ const COLORS = [
 export default function AnalyticsPage() {
   const { data: session } = useSession()
   const router = useRouter()
+  const { toast } = useToast()
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [displayCurrency, setDisplayCurrency] = useState<"USD" | "PKR">("PKR")
   const [activeTab, setActiveTab] = useState<"today" | "week" | "month">("month")
+  const [viewMode, setViewMode] = useState<"categories" | "months">("categories")
+  const [monthsToCompare, setMonthsToCompare] = useState(6) // Last 6 months
   const hasLoadedRef = useRef(false)
 
   // Helper function to handle API errors and redirect if needed
@@ -63,6 +67,10 @@ export default function AnalyticsPage() {
     if (response.status === 401) {
       const errorData = await response.json().catch(() => ({}))
       if (errorData.requiresAuth) {
+        toast({
+          title: "Session expired",
+          description: "Please sign in with Google again to see your analytics.",
+        })
         router.push("/login")
         return true
       }
@@ -176,6 +184,41 @@ export default function AnalyticsPage() {
   const categoryData = getCategoryData()
   const totalAmount = categoryData.reduce((sum, item) => sum + item.value, 0)
 
+  // Get monthly totals for comparison
+  const getMonthlyData = () => {
+    const monthlyMap: Record<string, number> = {}
+    const now = new Date()
+
+    for (let i = 0; i < monthsToCompare; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+      monthlyMap[key] = 0
+    }
+
+    expenses.forEach((expense) => {
+      const d = new Date(expense.date)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+      if (key in monthlyMap) {
+        monthlyMap[key] += convertToDisplayCurrency(expense.amount, expense.currency)
+      }
+    })
+
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    return Object.entries(monthlyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => {
+        const [year, month] = key.split("-")
+        return {
+          monthKey: key,
+          name: `${monthNames[parseInt(month) - 1]} ${year}`,
+          value: Number(value.toFixed(2)),
+          fill: "#3b82f6",
+        }
+      })
+  }
+
+  const monthlyData = getMonthlyData()
+
   // Chart configuration
   const chartConfig = categoryData.reduce((acc, item, index) => {
     acc[item.name] = {
@@ -186,79 +229,84 @@ export default function AnalyticsPage() {
   }, {} as Record<string, { label: string; color: string }>)
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-blue-950 p-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-center h-screen">
-            <div className="text-white text-xl">Loading analytics...</div>
-          </div>
-        </div>
-      </div>
-    )
+    return <LoadingScreen message="Loading analytics..." />
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-blue-950 p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => router.push("/")}
-              className="text-white hover:bg-blue-800/50"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold text-white">Category Analytics</h1>
-              <p className="text-gray-400 mt-1">Compare spending across categories</p>
-            </div>
+    <div className="min-h-screen bg-gradient-neon flex flex-col">
+      <div className="flex-1 container mx-auto px-4 py-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-white">Analytics</h1>
+            <p className="text-gray-400 mt-1">Compare spending across categories and months</p>
           </div>
-          <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-800/60 border border-gray-600/50">
-            <span className={`text-xs font-medium transition-colors ${displayCurrency === "USD" ? "text-white" : "text-gray-400"}`}>
-              USD
-            </span>
-            <Switch
-              checked={displayCurrency === "PKR"}
-              onCheckedChange={(checked) => setDisplayCurrency(checked ? "PKR" : "USD")}
-              className="data-[state=checked]:bg-blue-500 data-[state=unchecked]:bg-gray-600"
-            />
-            <span className={`text-xs font-medium transition-colors ${displayCurrency === "PKR" ? "text-white" : "text-gray-400"}`}>
-              PKR
-            </span>
-          </div>
-        </div>
 
-        {/* Time Period Filter */}
+          {/* View Mode Tabs */}
         <Card className="bg-gray-800/50 border-gray-700 mb-6">
           <CardHeader>
-            <CardTitle className="text-white">Time Period</CardTitle>
+            <CardTitle className="text-white">View</CardTitle>
           </CardHeader>
-          <CardContent>
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "today" | "week" | "month")}>
-              <TabsList className="grid grid-cols-3 w-full bg-gray-700/40 border border-gray-600/50">
+          <CardContent className="space-y-4">
+            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "categories" | "months")}>
+              <TabsList className="grid grid-cols-2 w-full max-w-md bg-gray-700/40 border border-gray-600/50">
                 <TabsTrigger
-                  value="today"
+                  value="categories"
                   className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
                 >
-                  Today
+                  By Category
                 </TabsTrigger>
                 <TabsTrigger
-                  value="week"
+                  value="months"
                   className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
                 >
-                  This Week
-                </TabsTrigger>
-                <TabsTrigger
-                  value="month"
-                  className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-                >
-                  This Month
+                  Month Comparison
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+
+            {viewMode === "categories" && (
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "today" | "week" | "month")}>
+                <TabsList className="grid grid-cols-3 w-full max-w-md bg-gray-700/40 border border-gray-600/50">
+                  <TabsTrigger
+                    value="today"
+                    className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                  >
+                    Today
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="week"
+                    className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                  >
+                    This Week
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="month"
+                    className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
+                  >
+                    This Month
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
+
+            {viewMode === "months" && (
+              <div className="flex items-center gap-3">
+                <label className="text-gray-400 text-sm">Compare last</label>
+                <Select
+                  value={String(monthsToCompare)}
+                  onValueChange={(v) => setMonthsToCompare(Number(v))}
+                >
+                  <SelectTrigger className="w-[120px] bg-gray-700/60 border-gray-600/50 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-800 border-gray-700/50">
+                    <SelectItem value="3">3 months</SelectItem>
+                    <SelectItem value="6">6 months</SelectItem>
+                    <SelectItem value="12">12 months</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -267,23 +315,111 @@ export default function AnalyticsPage() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-400 text-sm">Total Spent</p>
+                <p className="text-gray-400 text-sm">
+                  {viewMode === "categories" ? "Total Spent" : "Total (Selected Period)"}
+                </p>
                 <p className="text-3xl font-bold text-white mt-1">
-                  {formatCurrency(totalAmount)}
+                  {viewMode === "categories"
+                    ? formatCurrency(totalAmount)
+                    : formatCurrency(monthlyData.reduce((s, m) => s + m.value, 0))}
                 </p>
               </div>
               <div>
-                <p className="text-gray-400 text-sm">Categories</p>
+                <p className="text-gray-400 text-sm">
+                  {viewMode === "categories" ? "Categories" : "Months"}
+                </p>
                 <p className="text-3xl font-bold text-white mt-1">
-                  {categoryData.length}
+                  {viewMode === "categories" ? categoryData.length : monthlyData.length}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Charts */}
-        {categoryData.length === 0 ? (
+        {/* Month Comparison Chart */}
+        {viewMode === "months" && (
+          <Card className="bg-gray-800/50 border-gray-700 mb-6">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Spending by Month
+              </CardTitle>
+              <CardDescription className="text-gray-400">
+                Compare total spending across months
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-hidden p-4">
+              <div className="w-full h-[500px] overflow-hidden">
+                <ChartContainer
+                  config={monthlyData.reduce((acc, m) => {
+                    acc[m.monthKey] = { label: m.name, color: m.fill }
+                    return acc
+                  }, {} as Record<string, { label: string; color: string }>)}
+                  className="h-full w-full"
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={monthlyData}
+                      margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                      barCategoryGap="15%"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                      <XAxis
+                        dataKey="name"
+                        stroke="#9ca3af"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                        interval={0}
+                      />
+                      <YAxis
+                        stroke="#9ca3af"
+                        fontSize={12}
+                        tickLine={false}
+                        axisLine={false}
+                        width={80}
+                        domain={[0, "dataMax"]}
+                        tickFormatter={(value) => {
+                          if (displayCurrency === "USD") {
+                            return `$${value >= 1000 ? (value / 1000).toFixed(1) + "k" : value.toFixed(0)}`
+                          }
+                          return `₨${value >= 1000 ? (value / 1000).toFixed(1) + "k" : value.toFixed(0)}`
+                        }}
+                      />
+                      <ChartTooltip
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            const data = payload[0]
+                            const total = monthlyData.reduce((s, m) => s + m.value, 0)
+                            const pct = total > 0 ? ((Number(data.value) / total) * 100).toFixed(1) : 0
+                            return (
+                              <div className="rounded-lg border bg-gray-800 p-3 shadow-lg">
+                                <div className="grid gap-2">
+                                  <div className="flex items-center justify-between gap-4">
+                                    <span className="text-white font-medium">{data.name}</span>
+                                    <span className="text-blue-400 font-bold">
+                                      {formatCurrency(Number(data.value))}
+                                    </span>
+                                  </div>
+                                  <div className="text-gray-400 text-xs">{pct}% of total</div>
+                                </div>
+                              </div>
+                            )
+                          }
+                          return null
+                        }}
+                      />
+                      <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={80} fill="#3b82f6" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Category Charts */}
+        {viewMode === "categories" && categoryData.length === 0 && (
           <Card className="bg-gray-800/50 border-gray-700">
             <CardContent className="pt-6">
               <div className="text-center py-12">
@@ -292,7 +428,8 @@ export default function AnalyticsPage() {
               </div>
             </CardContent>
           </Card>
-        ) : (
+        )}
+        {viewMode === "categories" && categoryData.length > 0 && (
           <div>
             {/* Bar Chart - Full Width */}
             <Card className="bg-gray-800/50 border-gray-700">
@@ -381,8 +518,8 @@ export default function AnalyticsPage() {
           </div>
         )}
 
-        {/* Category List */}
-        {categoryData.length > 0 && (
+        {/* Category List - only when in categories view */}
+        {viewMode === "categories" && categoryData.length > 0 && (
           <Card className="bg-gray-800/50 border-gray-700 mt-6">
             <CardHeader>
               <CardTitle className="text-white">Category Breakdown</CardTitle>
@@ -424,6 +561,7 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
         )}
+        </div>
       </div>
     </div>
   )
