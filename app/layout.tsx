@@ -12,6 +12,11 @@ export const metadata: Metadata = {
   title: 'Expense Tracker',
   description: 'Expense Tracker with Google Authentication',
   generator: 'v0.app',
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+  },
   icons: {
     icon: [
       {
@@ -42,7 +47,7 @@ export default function RootLayout({
         <AuthSessionProvider>
           <div className="min-h-screen bg-gradient-neon flex">
             <AppSidebar />
-            <main className="flex-1 flex flex-col">
+            <main className="flex-1 flex flex-col pb-14 md:pb-0">
               {children}
             </main>
           </div>

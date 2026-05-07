@@ -25,7 +25,8 @@ export function LoadingScreen({
           const src = NOTE_IMAGES[i % NOTE_IMAGES.length]
           const rotation = (i % 2 === 0 ? 1 : -1) * (6 + (i % 5) * 4)
           const duration = 6 + (i % 4)
-          const phase = Math.random() * duration
+          // Deterministic pseudo-random phase using index to avoid SSR/CSR hydration mismatch
+          const phase = ((i * 2.618033988749895) % 1) * duration
           const left = 2 + (i * 4.3) % 96
           const scale = 0.55 + (i % 4) * 0.08
           return (

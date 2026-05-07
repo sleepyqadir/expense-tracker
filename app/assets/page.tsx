@@ -98,6 +98,14 @@ type Loan = {
   cleared?: boolean
 }
 
+type BinanceBalance = {
+  asset: string
+  free: string
+  locked: string
+  total: number
+  usdtValue: number | null
+}
+
 export default function AssetsPage() {
   const { data: session } = useSession()
   const router = useRouter()
@@ -119,6 +127,10 @@ export default function AssetsPage() {
   const [loans, setLoans] = useState<Loan[]>([])
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({})
   const [cryptoPrices, setCryptoPrices] = useState<Record<string, number>>({})
+  const [binanceBalances, setBinanceBalances] = useState<BinanceBalance[]>([])
+  const [binanceTotalUsd, setBinanceTotalUsd] = useState(0)
+  const [binanceConfigured, setBinanceConfigured] = useState(false)
+  const [binanceLoading, setBinanceLoading] = useState(false)
   const [usdToPkr, setUsdToPkr] = useState(USD_TO_PKR)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -179,6 +191,35 @@ export default function AssetsPage() {
 
     load()
   }, [session, router])
+
+  const fetchBinanceBalances = async () => {
+    try {
+      setBinanceLoading(true)
+      const res = await fetch("/api/binance/balance", { cache: "no-store" })
+      if (await handleApiError(res)) return
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err?.details || err?.error || "Failed to fetch Binance balances")
+      }
+      const data = await res.json()
+      setBinanceConfigured(Boolean(data.configured))
+      setBinanceBalances(Array.isArray(data.balances) ? data.balances : [])
+      setBinanceTotalUsd(Number(data.totalUsd || 0))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load Binance balances"
+      toast({
+        title: "Binance sync failed",
+        description: message,
+      })
+    } finally {
+      setBinanceLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!session) return
+    fetchBinanceBalances()
+  }, [session])
 
   const currencyHoldings = assets.holdings.filter(
     (h): h is CurrencyAsset => h.category === "currency"
@@ -389,6 +430,7 @@ export default function AssetsPage() {
     alMeezanValuePkr +
     currencyValuePkr +
     cryptoValuePkr +
+    binanceTotalUsd * usdToPkr +
     totalLoanGivenPkr
 
   const netAssetsPkr = totalAssetsPkr - totalLoanTakenPkr
@@ -979,6 +1021,65 @@ export default function AssetsPage() {
             </CardContent>
           </Card>
 
+          {/* Binance Balances */}
+          <Card className="bg-gray-800/50 border-gray-700 mb-4">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Landmark className="h-5 w-5" />
+                    Binance (View Only)
+                  </CardTitle>
+                  <CardDescription className="text-gray-400">
+                    {binanceConfigured
+                      ? `${formatCurrency(toDisplay(binanceTotalUsd * usdToPkr))} • Read from Binance API`
+                      : "Add BINANCE_API_KEY and BINANCE_API_SECRET in .env.local"}
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-gray-400 border-gray-600"
+                  onClick={fetchBinanceBalances}
+                  disabled={binanceLoading}
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  {binanceLoading ? "Refreshing..." : "Refresh"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!binanceConfigured ? (
+                <p className="text-gray-400 text-sm">
+                  This uses a read-only Binance key and does not place any trades.
+                </p>
+              ) : binanceBalances.length === 0 ? (
+                <p className="text-gray-400 text-sm">No non-zero balances found.</p>
+              ) : (
+                <div className="space-y-2">
+                  {binanceBalances.map((b) => (
+                    <div
+                      key={b.asset}
+                      className="flex items-center justify-between py-2 border-b border-gray-700/50 last:border-0"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-white font-medium w-16">{b.asset}</span>
+                        <span className="text-gray-400 text-sm">
+                          {b.total.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                        </span>
+                      </div>
+                      <span className="text-gray-300 text-sm">
+                        {b.usdtValue != null
+                          ? `~ $${b.usdtValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                          : "No USDT pair"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Total Loan Given (from Loans) */}
           <Card className="bg-gray-800/50 border-gray-700 mb-4">
             <CardHeader className="pb-2">
@@ -1012,7 +1113,7 @@ export default function AssetsPage() {
       </div>
 
       {isSaving && (
-        <div className="fixed bottom-4 right-4 bg-gray-800 text-white px-3 py-2 rounded-lg shadow-lg text-sm">
+        <div className="fixed bottom-20 md:bottom-4 right-4 bg-gray-800 text-white px-3 py-2 rounded-lg shadow-lg text-sm">
           Saving...
         </div>
       )}

@@ -629,12 +629,12 @@ export default function ExpenseTracker() {
   return (
     <div className="min-h-screen bg-gradient-neon flex flex-col">
       {isSaving && (
-        <div className="fixed top-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50">
+        <div className="fixed top-4 right-4 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 z-50 max-w-[calc(100vw-2rem)]">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
           <span className="text-sm">Saving to Google Drive...</span>
         </div>
       )}
-      <div className="sticky top-0 z-10 flex items-center justify-between px-6 pt-5 pb-3 bg-gradient-neon/90 backdrop-blur-md border-b border-gray-900/70">
+      <div className="sticky top-0 z-10 flex items-center justify-between px-4 sm:px-6 pt-4 sm:pt-5 pb-3 bg-gradient-neon/90 backdrop-blur-md border-b border-gray-900/70">
         <div>
           <h1 className="text-xl font-semibold text-white">Expense Tracker</h1>
           <p className="text-xs text-gray-400 mt-0.5">Overview of your spending and trends</p>
@@ -1048,11 +1048,11 @@ export default function ExpenseTracker() {
           {/* Expense List */}
           <Card className="bg-gray-800/60 border border-gray-700/50 backdrop-blur-xl shadow-xl">
             <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3">
                 <div className="space-y-2">
                   <CardTitle className="text-lg text-white">Recent Expenses</CardTitle>
                   <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList className="inline-flex w-full md:w-auto bg-gray-800/70 border border-gray-700/70 rounded-full p-0.5">
+                    <TabsList className="inline-flex w-full bg-gray-800/70 border border-gray-700/70 rounded-full p-0.5">
                       <TabsTrigger
                         value="all"
                         className="rounded-full px-4 py-1 text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white"
@@ -1080,19 +1080,20 @@ export default function ExpenseTracker() {
                     </TabsList>
                   </Tabs>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                     <Input
                       type="search"
                       placeholder="Search expenses..."
-                      className="w-[200px] pl-8 h-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                      className="w-full sm:w-[200px] pl-8 h-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
+                  <div className="flex gap-2">
                   <Select value={filterCategory} onValueChange={setFilterCategory}>
-                    <SelectTrigger className="w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
+                    <SelectTrigger className="flex-1 sm:w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
                       <SelectValue placeholder="Category" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-800 border-gray-700/50">
@@ -1108,7 +1109,7 @@ export default function ExpenseTracker() {
                     </SelectContent>
                   </Select>
                   <Select value={filterPerson} onValueChange={setFilterPerson}>
-                    <SelectTrigger className="w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
+                    <SelectTrigger className="flex-1 sm:w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
                       <SelectValue placeholder="Person" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-800 border-gray-700/50">
@@ -1121,6 +1122,7 @@ export default function ExpenseTracker() {
                       ))}
                     </SelectContent>
                   </Select>
+                  </div>
                 </div>
               </div>
             </CardHeader>

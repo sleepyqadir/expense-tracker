@@ -1,6 +1,10 @@
 import { NextAuthOptions } from "next-auth"
 import GoogleProvider from "next-auth/providers/google"
 
+/** JWT/session encryption; required when NODE_ENV=production */
+const authSecret =
+  process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET
+
 export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
@@ -16,7 +20,7 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/login",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: authSecret,
   callbacks: {
     async jwt({ token, account }) {
       if (account?.access_token) {

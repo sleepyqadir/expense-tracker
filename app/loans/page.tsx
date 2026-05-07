@@ -539,12 +539,12 @@ export default function LoansPage() {
                 {activeLoans.map((loan) => (
                   <div
                     key={loan.id}
-                    className="flex items-center justify-between p-4 bg-gray-700/30 rounded-lg border border-gray-600/50"
+                    className="flex items-start sm:items-center justify-between p-4 bg-gray-700/30 rounded-lg border border-gray-600/50 gap-2"
                   >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <User className="h-4 w-4 text-gray-400" />
-                        <span className="text-white font-medium">{loan.person}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <User className="h-4 w-4 text-gray-400 shrink-0" />
+                        <span className="text-white font-medium truncate">{loan.person}</span>
                         <Badge
                           variant="outline"
                           className={loan.type === "given" ? "border-green-500 text-green-500" : "border-red-500 text-red-500"}
@@ -557,9 +557,9 @@ export default function LoansPage() {
                         {new Date(loan.date).toLocaleDateString()}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div className="text-white font-bold text-lg">
+                    <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                      <div className="text-right mr-1">
+                        <div className="text-white font-bold text-sm sm:text-base">
                           {formatCurrency(convertToDisplayCurrency(loan.amount, loan.currency))}
                         </div>
                         <div className="text-gray-400 text-xs">
@@ -573,28 +573,28 @@ export default function LoansPage() {
                           setPartialClearLoanId(loan.id)
                           setPartialClearAmount("")
                         }}
-                        className="text-amber-500 hover:bg-amber-500/10"
+                        className="text-amber-500 hover:bg-amber-500/10 h-8 w-8"
                         title="Partial clear"
                       >
-                        <MinusCircle className="h-5 w-5" />
+                        <MinusCircle className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => handleClearLoan(loan.id)}
-                        className="text-green-500 hover:bg-green-500/10"
+                        className="text-green-500 hover:bg-green-500/10 h-8 w-8"
                         title="Clear loan (full)"
                       >
-                        <CheckCircle2 className="h-5 w-5" />
+                        <CheckCircle2 className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDeleteLoan(loan.id)}
-                        className="text-red-500 hover:bg-red-500/10"
+                        className="text-red-500 hover:bg-red-500/10 h-8 w-8"
                         title="Delete loan"
                       >
-                        <Trash2 className="h-5 w-5" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
@@ -618,12 +618,12 @@ export default function LoansPage() {
                 {clearedLoans.map((loan) => (
                   <div
                     key={loan.id}
-                    className="flex items-center justify-between p-4 bg-gray-700/20 rounded-lg border border-gray-600/30 opacity-60"
+                    className="flex items-start sm:items-center justify-between p-4 bg-gray-700/20 rounded-lg border border-gray-600/30 opacity-60 gap-2"
                   >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <User className="h-4 w-4 text-gray-400" />
-                        <span className="text-white font-medium">{loan.person}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <User className="h-4 w-4 text-gray-400 shrink-0" />
+                        <span className="text-white font-medium truncate">{loan.person}</span>
                         <Badge
                           variant="outline"
                           className={loan.type === "given" ? "border-green-500 text-green-500" : "border-red-500 text-red-500"}
@@ -639,9 +639,9 @@ export default function LoansPage() {
                         Cleared on {loan.clearedDate ? new Date(loan.clearedDate).toLocaleDateString() : "N/A"}
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <div className="text-white font-bold text-lg">
+                    <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                      <div className="text-right mr-1">
+                        <div className="text-white font-bold text-sm sm:text-base">
                           {formatCurrency(convertToDisplayCurrency(loan.amount, loan.currency))}
                         </div>
                         <div className="text-gray-400 text-xs">
@@ -652,10 +652,10 @@ export default function LoansPage() {
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDeleteLoan(loan.id)}
-                        className="text-red-500 hover:bg-red-500/10"
+                        className="text-red-500 hover:bg-red-500/10 h-8 w-8"
                         title="Delete loan"
                       >
-                        <Trash2 className="h-5 w-5" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>

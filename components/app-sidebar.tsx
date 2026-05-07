@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
-import { LayoutGrid, BarChart3, CreditCard, Banknote, Heart, Plus, CalendarRange } from "lucide-react"
+import { LayoutGrid, BarChart3, CreditCard, Banknote, Heart, CalendarRange } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -22,6 +22,7 @@ export function AppSidebar() {
 
   return (
     <TooltipProvider delayDuration={0}>
+      {/* Desktop sidebar */}
       <aside className="hidden md:flex flex-col justify-between py-6 px-3 w-20 bg-black/85 border-r border-gray-900/80">
         <div className="flex flex-col items-center gap-4">
           {/* User avatar */}
@@ -76,6 +77,29 @@ export function AppSidebar() {
           </div>
         </div>
       </aside>
+
+      {/* Mobile bottom navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex md:hidden bg-black/95 border-t border-gray-800/80 backdrop-blur-md safe-area-pb">
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon
+          const active = pathname === item.href
+          return (
+            <button
+              key={item.href}
+              onClick={() => router.push(item.href)}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 px-1 transition-colors min-h-[56px] ${
+                active ? "text-blue-400" : "text-gray-500"
+              }`}
+              aria-label={item.label}
+            >
+              <Icon className={`h-5 w-5 ${active ? "text-blue-400" : "text-gray-500"}`} />
+              <span className={`text-[9px] font-medium leading-none ${active ? "text-blue-400" : "text-gray-500"}`}>
+                {item.label}
+              </span>
+            </button>
+          )
+        })}
+      </nav>
     </TooltipProvider>
   )
 }

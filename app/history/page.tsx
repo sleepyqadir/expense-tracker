@@ -356,7 +356,7 @@ export default function HistoryPage() {
                   setSelectedMonthKey(v)
                 }}
               >
-                <SelectTrigger className="w-[210px] h-9 bg-gray-900/80 border-gray-800 text-white">
+                <SelectTrigger className="w-full sm:w-[210px] h-9 bg-gray-900/80 border-gray-800 text-white">
                   <SelectValue placeholder="Select month" />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-900 border-gray-800 text-white">
@@ -439,13 +439,13 @@ export default function HistoryPage() {
           {/* Recent Expenses for selected month */}
           <Card className="bg-gray-800/60 border border-gray-700/60 backdrop-blur-xl shadow-xl">
             <CardHeader className="pb-3">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3">
                 <div className="space-y-2">
                   <CardTitle className="text-lg text-white">
                     Recent Expenses
                   </CardTitle>
                   <Tabs value={activeTab} onValueChange={setActiveTab}>
-                    <TabsList className="inline-flex w-full md:w-auto bg-gray-800/70 border border-gray-700/70 rounded-full p-0.5">
+                    <TabsList className="inline-flex w-full bg-gray-800/70 border border-gray-700/70 rounded-full p-0.5">
                       <TabsTrigger
                         value="all"
                         className="rounded-full px-4 py-1 text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white"
@@ -473,22 +473,23 @@ export default function HistoryPage() {
                     </TabsList>
                   </Tabs>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <div className="relative flex-1 sm:flex-none">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                     <Input
                       type="search"
                       placeholder="Search expenses..."
-                      className="w-[200px] pl-8 h-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
+                      className="w-full sm:w-[200px] pl-8 h-9 bg-gray-700/60 border-gray-600/50 text-white placeholder:text-gray-400 focus:border-blue-500"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
+                  <div className="flex gap-2">
                   <Select
                     value={filterCategory}
                     onValueChange={setFilterCategory}
                   >
-                    <SelectTrigger className="w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
+                    <SelectTrigger className="flex-1 sm:w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
                       <SelectValue placeholder="Category" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-800 border-gray-700/50">
@@ -509,7 +510,7 @@ export default function HistoryPage() {
                     value={filterPerson}
                     onValueChange={setFilterPerson}
                   >
-                    <SelectTrigger className="w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
+                    <SelectTrigger className="flex-1 sm:w-[130px] h-9 bg-gray-700/60 border-gray-600/50 text-white">
                       <SelectValue placeholder="Person" />
                     </SelectTrigger>
                     <SelectContent className="bg-gray-800 border-gray-700/50">
@@ -522,6 +523,7 @@ export default function HistoryPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  </div>
                 </div>
               </div>
             </CardHeader>

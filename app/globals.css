@@ -143,3 +143,10 @@
   animation-timing-function: linear;
   animation-iteration-count: infinite;
 }
+
+/* Safe area inset support for iOS notch/home indicator */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
